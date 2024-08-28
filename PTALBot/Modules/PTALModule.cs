@@ -1,21 +1,27 @@
 ﻿using Discord;
 using Discord.Interactions;
 using Octokit;
-using PTALBot.Commands;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 
 namespace PTALBot.Modules
 {
+    public struct GeneratedMessage
+    {
+        public string text;
+        public Embed embed;
+        public MessageComponent components;
+    }
+    enum PRState
+    {
+        PENDING,
+        REVIEWED,
+        CHANGES_REQUESTED,
+        APPROVED,
+        MERGED,
+        CLOSED
+    }
     public partial class PTALModule : InteractionModuleBase<SocketInteractionContext>
     {
-
-        public InteractionService Commands { get; set; }
-
         private static string PRStateToReviewText(PRState state) => state switch
         {
             PRState.PENDING => "⏳ Awaiting Review",
@@ -44,39 +50,8 @@ namespace PTALBot.Modules
         [GeneratedRegex("(?<ORGANISATION>[\\w\\.-]+)\\/(?<REPOSITORY>[\\w\\.-]+)#(?<NUMBER>\\d+)")]
         private static partial Regex SimplifiedRegex();
 
-
-        [SlashCommand("ptal", "test")]
-        public async Task PTALCommand(string github, string description = "")
+        public async Task<GeneratedMessage?> GenerateResponse(bool reload, string organisation, string repository, int number, string description)
         {
-            #region Github parsing;
-            string organisation = "";
-            string repository = "";
-            int number = -1;
-
-            Match githubURLMatch = GithubURLRegex().Match(github);
-            if (githubURLMatch.Success == true)
-            {
-                organisation = githubURLMatch.Groups.GetValueOrDefault("ORGANISATION")!.Value;
-                repository = githubURLMatch.Groups.GetValueOrDefault("REPOSITORY")!.Value;
-                number = int.Parse(githubURLMatch.Groups.GetValueOrDefault("NUMBER")!.Value);
-            }
-            else
-            {
-                Match simplifiedMatch = SimplifiedRegex().Match(github);
-                if (simplifiedMatch.Success)
-                {
-                    organisation = simplifiedMatch.Groups.GetValueOrDefault("ORGANISATION")!.Value;
-                    repository = simplifiedMatch.Groups.GetValueOrDefault("REPOSITORY")!.Value;
-                    number = int.Parse(simplifiedMatch.Groups.GetValueOrDefault("NUMBER")!.Value);
-                }
-                else
-                {
-                    await RespondAsync(text: "Please provide a valid pull request. Use COMMAND for the correct format.", ephemeral: true);
-                    return;
-                }
-            }
-            #endregion
-
             #region Github requests
             PullRequest pr;
             try
@@ -86,7 +61,7 @@ namespace PTALBot.Modules
             catch
             {
                 await RespondAsync(text: "Failed to retrieve the pull request from github. Are you sure it exists?", ephemeral: true);
-                return;
+                return null;
             }
 
             await DeferAsync();
@@ -99,8 +74,8 @@ namespace PTALBot.Modules
             }
             catch
             {
-                await FollowupAsync(text: "Failed to retrieve the pull request reviews from github.");
-                return;
+                await FollowupAsync(text: "Failed to retrieve the pull request reviews from github.", ephemeral: reload);
+                return null;
             }
             #endregion
 
@@ -109,7 +84,6 @@ namespace PTALBot.Modules
                 .WithUrl(pr.HtmlUrl)
                 .WithCurrentTimestamp()
                 .WithAuthor(Context.User)
-
                 .AddField("Repository", $"[{organisation}/{repository}#{number}]({pr.HtmlUrl})");
 
             if (pr.State.Value == ItemState.Closed)
@@ -127,9 +101,57 @@ namespace PTALBot.Modules
             {
                 bool open = (pr.State.Value == ItemState.Open);
 
+                List<long> uniqueIDs = new(); 
+
                 for (int i = 0; i < reviews.Count; i++)
                 {
-                    var review = reviews[i];
+                    if(!uniqueIDs.Contains(reviews[i].User.Id))
+                    {
+                        uniqueIDs.Add(reviews[i].User.Id);
+                    }
+                }
+
+                List<PullRequestReview> mainReviews = new();
+
+                for(int i = 0; i < uniqueIDs.Count; i++)
+                {
+                    List<PullRequestReview> userReviews = reviews.Where(rev => rev.User.Id == uniqueIDs[i]).Where(rev => rev.State.Value != PullRequestReviewState.Dismissed && rev.State.Value != PullRequestReviewState.Pending)
+                        .ToList();
+
+                    PullRequestReview mainReview = userReviews.First();
+
+                    for (int j = 1; j < userReviews.Count; j++)
+                    {
+                        PullRequestReview nextReview = userReviews[j];
+                        switch(nextReview.State.Value)
+                        {
+                            case PullRequestReviewState.Approved:
+                                if(mainReview.State.Value == PullRequestReviewState.Commented)
+                                {
+                                    mainReview = nextReview;
+                                }
+                                else if(mainReview.State.Value == PullRequestReviewState.ChangesRequested && nextReview.SubmittedAt > mainReview.SubmittedAt)
+                                {
+                                    mainReview = nextReview;
+                                }
+                                break;
+                            case PullRequestReviewState.ChangesRequested:
+                                if (mainReview.State.Value == PullRequestReviewState.Commented)
+                                {
+                                    mainReview = nextReview;
+                                }
+                                break;
+                        }
+                    }
+
+                    mainReviews.Add(mainReview);
+                }
+
+                for (int i = 0; i < mainReviews.Count; i++)
+                {
+                    var review = mainReviews[i];
+
+                    // TODO: refactor skip order
 
                     switch (review.State.Value)
                     {
@@ -149,6 +171,7 @@ namespace PTALBot.Modules
                             }
                             break;
                         case PullRequestReviewState.ChangesRequested:
+
                             if (open)
                             {
                                 reviewText += $"[⭕ {review.User.Login}]({review.User.HtmlUrl})\n";
@@ -165,29 +188,6 @@ namespace PTALBot.Modules
                             break;
                         case PullRequestReviewState.Dismissed:
                         case PullRequestReviewState.Commented:
-                            bool skip = false;
-                            for (int j = 0; j < reviews.Count; j++)
-                            {
-                                var checkReview = reviews[j];
-
-                                if (checkReview.User.Id == review.User.Id && (review.State.Value == PullRequestReviewState.Approved || review.State.Value == PullRequestReviewState.ChangesRequested))
-                                {
-                                    skip = true;
-                                    continue;
-                                }
-
-                                if (checkReview.User.Id == review.User.Id && i < j)
-                                {
-                                    skip = true;
-                                    continue;
-                                }
-                            }
-
-                            if (skip)
-                            {
-                                continue;
-                            }
-
                             if (open)
                             {
                                 reviewText += $"[💬 {review.User.Login}]({review.User.HtmlUrl})\n";
@@ -222,6 +222,14 @@ namespace PTALBot.Modules
 
             ComponentBuilder componentBuilder = new ComponentBuilder();
 
+            ButtonBuilder githubButton = new ButtonBuilder()
+                .WithEmote(Emote.Parse("<:github:1277903480291594303>"))
+                .WithLabel("View on Github")
+                .WithUrl(pr.HtmlUrl)
+                .WithStyle(ButtonStyle.Link);
+
+            componentBuilder.WithButton(githubButton);
+
             ButtonBuilder fileButton = new ButtonBuilder()
                 .WithEmote(Discord.Emoji.Parse("📁"))
                 .WithLabel("Files")
@@ -237,14 +245,76 @@ namespace PTALBot.Modules
                     .WithEmote(Discord.Emoji.Parse("🔁"))
                     .WithLabel("Refresh")
                     .WithStyle(ButtonStyle.Primary)
-                    .WithCustomId("ptal-refresh");
+                    .WithCustomId("ptal:refresh");
 
                 componentBuilder.WithButton(refreshButton);
             }
 
             string descriptionPrefix = "**PTAL** ";
 
-            await FollowupAsync(text: descriptionPrefix + description, embed: embed.Build(), components: componentBuilder.Build());
+            return new GeneratedMessage()
+            {
+                text = descriptionPrefix + description,
+                embed = embed.Build(),
+                components = componentBuilder.Build()
+            };
+        }
+
+
+        [SlashCommand("ptal", "test")]
+        public async Task PTALCommand(string github, string description = "")
+        {
+            #region Github parsing;
+            string organisation = "";
+            string repository = "";
+            int number = -1;
+
+            Match githubURLMatch = GithubURLRegex().Match(github);
+            if (githubURLMatch.Success == true)
+            {
+                organisation = githubURLMatch.Groups.GetValueOrDefault("ORGANISATION")!.Value;
+                repository = githubURLMatch.Groups.GetValueOrDefault("REPOSITORY")!.Value;
+                number = int.Parse(githubURLMatch.Groups.GetValueOrDefault("NUMBER")!.Value);
+            }
+            else
+            {
+                Match simplifiedMatch = SimplifiedRegex().Match(github);
+                if (simplifiedMatch.Success)
+                {
+                    organisation = simplifiedMatch.Groups.GetValueOrDefault("ORGANISATION")!.Value;
+                    repository = simplifiedMatch.Groups.GetValueOrDefault("REPOSITORY")!.Value;
+                    number = int.Parse(simplifiedMatch.Groups.GetValueOrDefault("NUMBER")!.Value);
+                }
+                else
+                {
+                    await RespondAsync(text: "Please provide a valid pull request. Use COMMAND for the correct format.", ephemeral: true);
+                    return;
+                }
+            }
+            #endregion
+
+            GeneratedMessage? generatedMessage = await GenerateResponse(false, organisation, repository, number, description);
+
+            if(generatedMessage.HasValue)
+            {
+                await FollowupAsync(text: generatedMessage.Value.text, embed: generatedMessage.Value.embed, components: generatedMessage.Value.components);
+            }
+        }
+
+        [ComponentInteraction("ptal:refresh")]
+        public async Task ReloadButton()
+        {
+            GeneratedMessage? generatedMessage = await GenerateResponse(false, "withastro", "houston-discord", 76, "test");
+
+            if (generatedMessage.HasValue)
+            {
+                await ModifyOriginalResponseAsync(properties =>
+                {
+                    properties.Content = generatedMessage.Value.text;
+                    properties.Embed = generatedMessage.Value.embed;
+                    properties.Components = generatedMessage.Value.components;
+                });
+            }
         }
     }
 }
