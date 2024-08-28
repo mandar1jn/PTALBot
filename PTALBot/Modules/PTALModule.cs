@@ -165,8 +165,6 @@ namespace PTALBot.Modules
                 {
                     var review = mainReviews[i];
 
-                    // TODO: refactor skip order
-
                     switch (review.State.Value)
                     {
                         case PullRequestReviewState.Approved:
