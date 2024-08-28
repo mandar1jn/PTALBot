@@ -1,5 +1,6 @@
 ﻿using Discord;
 using Discord.Interactions;
+using Discord.WebSocket;
 using Octokit;
 using System.Text.RegularExpressions;
 
@@ -304,7 +305,23 @@ namespace PTALBot.Modules
         [ComponentInteraction("ptal:refresh")]
         public async Task ReloadButton()
         {
-            GeneratedMessage? generatedMessage = await GenerateResponse(false, "withastro", "houston-discord", 76, "test");
+            SocketUserMessage original = ((SocketMessageComponent)Context.Interaction).Message;
+
+            IEmbed embed = original.Embeds.First();
+            string url = embed.Url;
+
+            Match urlMatch = GithubURLRegex().Match(url);
+
+            if(!urlMatch.Success)
+            {
+                throw new Exception("Somehow parsed an incorrect URL from the embed");
+            }
+
+            GeneratedMessage? generatedMessage = await GenerateResponse(true,
+                urlMatch.Groups.GetValueOrDefault("ORGANISATION")!.Value,
+                urlMatch.Groups.GetValueOrDefault("REPOSITORY")!.Value,
+                int.Parse(urlMatch.Groups.GetValueOrDefault("NUMBER")!.Value),
+                (original.Content.Trim() == "**PTAL**"? "" : original.Content.Substring(9)));
 
             if (generatedMessage.HasValue)
             {
