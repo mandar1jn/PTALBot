@@ -45,13 +45,21 @@ namespace PTALBot.Modules
             _ => throw new ArgumentOutOfRangeException(nameof(state))
         };
 
-        private static GitHubClient githubClient = new GitHubClient(new ProductHeaderValue("my-cool-app"));
+        private static readonly AllowedMentions allowedMentions = new(AllowedMentionTypes.Roles | AllowedMentionTypes.Users);
+
+        private static readonly GitHubClient githubClient = new GitHubClient(new ProductHeaderValue("my-cool-app"));
         [GeneratedRegex("((https:\\/\\/)?github\\.com\\/)?(?<ORGANISATION>[\\w\\.-]+)\\/(?<REPOSITORY>[\\w\\.-]+)\\/pull\\/(?<NUMBER>\\d+)")]
         private static partial Regex GithubURLRegex();
         [GeneratedRegex("(?<ORGANISATION>[\\w\\.-]+)\\/(?<REPOSITORY>[\\w\\.-]+)#(?<NUMBER>\\d+)")]
         private static partial Regex SimplifiedRegex();
 
-        public async Task<GeneratedMessage?> GenerateResponse(bool reload, string organisation, string repository, int number, string description)
+        public async Task<GeneratedMessage?> GenerateResponse(bool reload,
+            string organisation,
+            string repository,
+            int number,
+            string description,
+            string originalAuthorName,
+            string originalAuthorAvatarURL)
         {
             #region Github requests
             PullRequest pr;
@@ -80,11 +88,16 @@ namespace PTALBot.Modules
             }
             #endregion
 
+            EmbedFooterBuilder footer = new EmbedFooterBuilder()
+                .WithIconUrl(Context.User.GetAvatarUrl() ?? Context.User.GetDefaultAvatarUrl())
+                .WithText($"{(reload ? "Updated" : "Requested")} by @{Context.User.Username}");
+
             EmbedBuilder embed = new EmbedBuilder()
                 .WithTitle(pr.Title)
                 .WithUrl(pr.HtmlUrl)
+                .WithFooter(footer)
                 .WithCurrentTimestamp()
-                .WithAuthor(Context.User)
+                .WithAuthor(originalAuthorName, iconUrl: originalAuthorAvatarURL)
                 .AddField("Repository", $"[{organisation}/{repository}#{number}]({pr.HtmlUrl})");
 
             if (pr.State.Value == ItemState.Closed)
@@ -163,7 +176,7 @@ namespace PTALBot.Modules
                             }
                             else
                             {
-                                reviewText += "✅\n";
+                                reviewText += "✅";
                             }
 
                             if (pr.State.Value == ItemState.Open && prState != PRState.CHANGES_REQUESTED)
@@ -179,7 +192,7 @@ namespace PTALBot.Modules
                             }
                             else
                             {
-                                reviewText += "⭕\n";
+                                reviewText += "⭕";
                             }
 
                             if (pr.State.Value == ItemState.Open)
@@ -195,7 +208,7 @@ namespace PTALBot.Modules
                             }
                             else
                             {
-                                reviewText += "💬\n";
+                                reviewText += "💬";
                             }
 
                             if (pr.State.Value == ItemState.Open && prState == PRState.PENDING)
@@ -294,11 +307,13 @@ namespace PTALBot.Modules
             }
             #endregion
 
-            GeneratedMessage? generatedMessage = await GenerateResponse(false, organisation, repository, number, description);
+            GeneratedMessage? generatedMessage = await GenerateResponse(false, organisation, repository, number, description,
+                Context.User.DiscriminatorValue != 0 ? $"{Context.User.Username}#{Context.User.Discriminator}" : Context.User.Username,
+                Context.User.GetAvatarUrl() ?? Context.User.GetDefaultAvatarUrl());
 
             if(generatedMessage.HasValue)
             {
-                await FollowupAsync(text: generatedMessage.Value.text, embed: generatedMessage.Value.embed, components: generatedMessage.Value.components);
+                await FollowupAsync(text: generatedMessage.Value.text, embed: generatedMessage.Value.embed, components: generatedMessage.Value.components, allowedMentions: allowedMentions);
             }
         }
 
@@ -321,7 +336,9 @@ namespace PTALBot.Modules
                 urlMatch.Groups.GetValueOrDefault("ORGANISATION")!.Value,
                 urlMatch.Groups.GetValueOrDefault("REPOSITORY")!.Value,
                 int.Parse(urlMatch.Groups.GetValueOrDefault("NUMBER")!.Value),
-                (original.Content.Trim() == "**PTAL**"? "" : original.Content.Substring(9)));
+                original.Content.Trim() == "**PTAL**"? "" : original.Content[9..],
+                embed.Author!.Value.Name,
+                embed.Author!.Value.IconUrl);
 
             if (generatedMessage.HasValue)
             {
