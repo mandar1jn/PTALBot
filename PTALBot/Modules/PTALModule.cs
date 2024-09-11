@@ -19,7 +19,8 @@ namespace PTALBot.Modules
         CHANGES_REQUESTED,
         APPROVED,
         MERGED,
-        CLOSED
+        CLOSED,
+        DRAFT
     }
     public partial class PTALModule : InteractionModuleBase<SocketInteractionContext>
     {
@@ -42,6 +43,7 @@ namespace PTALBot.Modules
             PRState.APPROVED => 0x57f287,
             PRState.MERGED => 0xa590d4,
             PRState.CLOSED => 0x95a5a6,
+            PRState.DRAFT => 0x6e7681,
             _ => throw new ArgumentOutOfRangeException(nameof(state))
         };
 
@@ -103,7 +105,11 @@ namespace PTALBot.Modules
             if (pr.State.Value == ItemState.Closed)
             {
                 string state = pr.Merged ? "MERGED" : "CLOSED";
-                embed.Title = $"[{state}] " + embed.Title;
+                embed.Title = $"[{state}] {embed.Title}";
+            }
+            else if(pr.Draft)
+            {
+                embed.Title = $"[DRAFT] {embed.Title}";
             }
 
             #region Handle reviews
@@ -224,6 +230,11 @@ namespace PTALBot.Modules
             }
 
             embed.AddField("Status", PRStateToReviewText(prState));
+
+            if(pr.State.Value == ItemState.Open && pr.Draft)
+            {
+                prState = PRState.DRAFT;
+            }
             embed.WithColor(PRStateToColor(prState));
 
             if (reviewText != "")
