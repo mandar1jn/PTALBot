@@ -2,13 +2,7 @@
 using Discord.Interactions;
 using Discord.WebSocket;
 using Microsoft.Extensions.Configuration;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
-using System.Reflection.Metadata;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace PTALBot
 {
@@ -73,7 +67,7 @@ namespace PTALBot
                 switch (result.Error)
                 {
                     case InteractionCommandError.UnmetPrecondition:
-                        // implement
+                        // TODO: implement
                         break;
                     default:
                         break;
@@ -83,9 +77,11 @@ namespace PTALBot
             return Task.CompletedTask;
         }
 
-        private static async Task Log(LogMessage msg)
+        private static Task Log(LogMessage msg)
         {
             Console.WriteLine(msg.ToString());
+
+            return Task.CompletedTask;
         }
     }
 }

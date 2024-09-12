@@ -3,28 +3,21 @@ using Discord.Interactions;
 using Discord.WebSocket;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using System;
-using System.Globalization;
-using System.Reflection;
-using System.Threading;
-using System.Threading.Tasks;
 
 namespace PTALBot
 {
     public class Program
     {
-        private static IConfiguration configuration;
-        private static IServiceProvider services;
+        private static readonly IConfiguration configuration = new ConfigurationBuilder().AddJsonFile("appconfig.json").Build();
+        private static IServiceProvider services = null!;
 
         private static readonly DiscordSocketConfig socketConfiguration = new DiscordSocketConfig()
         {
             GatewayIntents = GatewayIntents.None
         };
 
-        public static async Task Main(string[] args)
+        public static async Task Main()
         {
-            configuration = new ConfigurationBuilder().AddJsonFile("appconfig.json").Build();
-
             services = new ServiceCollection()
                 .AddSingleton(configuration)
                 .AddSingleton(socketConfiguration)
