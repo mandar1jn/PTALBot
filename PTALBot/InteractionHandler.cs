@@ -11,6 +11,7 @@ namespace PTALBot
         private readonly DiscordSocketClient client = client;
         private readonly InteractionService handler = handler;
         private readonly IServiceProvider services = services;
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("CodeQuality", "IDE0052:Remove unread private members", Justification = "To be used later to configure the bot")]
         private readonly IConfiguration configuration = config;
 
         public async Task InitializeAsync()
