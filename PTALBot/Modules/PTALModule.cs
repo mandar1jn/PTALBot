@@ -49,7 +49,8 @@ namespace PTALBot.Modules
 
         private static readonly AllowedMentions allowedMentions = new(AllowedMentionTypes.Roles | AllowedMentionTypes.Users);
 
-        private static readonly GitHubClient githubClient = new GitHubClient(new ProductHeaderValue("my-cool-app"));
+        private static readonly GitHubClient githubClient = new(new ProductHeaderValue("mandar1jn-ptal-bot"));
+
         [GeneratedRegex("((https:\\/\\/)?github\\.com\\/)?(?<ORGANISATION>[\\w\\.-]+)\\/(?<REPOSITORY>[\\w\\.-]+)\\/pull\\/(?<NUMBER>\\d+)")]
         private static partial Regex GithubURLRegex();
         [GeneratedRegex("(?<ORGANISATION>[\\w\\.-]+)\\/(?<REPOSITORY>[\\w\\.-]+)#(?<NUMBER>\\d+)")]
@@ -121,7 +122,7 @@ namespace PTALBot.Modules
             {
                 bool open = (pr.State.Value == ItemState.Open);
 
-                List<long> uniqueIDs = new(); 
+                List<long> uniqueIDs = []; 
 
                 for (int i = 0; i < reviews.Count; i++)
                 {
@@ -131,7 +132,7 @@ namespace PTALBot.Modules
                     }
                 }
 
-                List<PullRequestReview> mainReviews = new();
+                List<PullRequestReview> mainReviews = [];
 
                 for(int i = 0; i < uniqueIDs.Count; i++)
                 {
@@ -243,7 +244,7 @@ namespace PTALBot.Modules
             }
             #endregion
 
-            ComponentBuilder componentBuilder = new ComponentBuilder();
+            ComponentBuilder componentBuilder = new();
 
             ButtonBuilder githubButton = new ButtonBuilder()
                 .WithEmote(Emote.Parse("<:github:1277903480291594303>"))
@@ -288,9 +289,9 @@ namespace PTALBot.Modules
         public async Task PTALCommand(string github, string description = "")
         {
             #region Github parsing;
-            string organisation = "";
-            string repository = "";
-            int number = -1;
+            string organisation;
+            string repository;
+            int number;
 
             Match githubURLMatch = GithubURLRegex().Match(github);
             if (githubURLMatch.Success == true)
