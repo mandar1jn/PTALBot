@@ -1,7 +1,9 @@
 ﻿using Discord;
 using Discord.Interactions;
+using Discord.Utils;
 using Discord.WebSocket;
 using Octokit;
+using System.Reflection.Metadata.Ecma335;
 using System.Text.RegularExpressions;
 
 namespace PTALBot.Modules
@@ -53,6 +55,7 @@ namespace PTALBot.Modules
 
         [GeneratedRegex("((https:\\/\\/)?github\\.com\\/)?(?<ORGANISATION>[\\w\\.-]+)\\/(?<REPOSITORY>[\\w\\.-]+)\\/pull\\/(?<NUMBER>\\d+)")]
         private static partial Regex GithubURLRegex();
+
         [GeneratedRegex("(?<ORGANISATION>[\\w\\.-]+)\\/(?<REPOSITORY>[\\w\\.-]+)#(?<NUMBER>\\d+)")]
         private static partial Regex SimplifiedRegex();
 
@@ -62,7 +65,8 @@ namespace PTALBot.Modules
             int number,
             string description,
             string originalAuthorName,
-            string originalAuthorAvatarURL)
+            string originalAuthorAvatarURL,
+            string deployment)
         {
             #region Github requests
             PullRequest pr;
@@ -246,6 +250,16 @@ namespace PTALBot.Modules
 
             ComponentBuilder componentBuilder = new();
 
+            if(deployment != "")
+            {
+                ButtonBuilder deploymentButton = new ButtonBuilder()
+                    .WithLabel("View deployment")
+                    .WithUrl(deployment)
+                    .WithStyle(ButtonStyle.Link);
+
+                componentBuilder.WithButton(deploymentButton);
+            }
+
             ButtonBuilder githubButton = new ButtonBuilder()
                 .WithEmote(Emote.Parse("<:github:1277903480291594303>"))
                 .WithLabel("View on Github")
@@ -286,7 +300,7 @@ namespace PTALBot.Modules
 
 
         [SlashCommand("ptal", "test")]
-        public async Task PTALCommand(string github, string description = "")
+        public async Task PTALCommand(string github, string description = "", string deployment = "")
         {
             #region Github parsing;
             string organisation;
@@ -317,9 +331,16 @@ namespace PTALBot.Modules
             }
             #endregion
 
+            if(!deployment.StartsWith("http://", StringComparison.CurrentCultureIgnoreCase) && !deployment.StartsWith("https://", StringComparison.CurrentCultureIgnoreCase))
+            {
+                await RespondAsync("A deployment URL must start with either 'http://' or 'https://'", ephemeral: true);
+                return;
+            }
+
             GeneratedMessage? generatedMessage = await GenerateResponse(false, organisation, repository, number, description,
                 Context.User.DiscriminatorValue != 0 ? $"{Context.User.Username}#{Context.User.Discriminator}" : Context.User.Username,
-                Context.User.GetAvatarUrl() ?? Context.User.GetDefaultAvatarUrl());
+                Context.User.GetAvatarUrl() ?? Context.User.GetDefaultAvatarUrl(),
+                deployment);
 
             if(generatedMessage.HasValue)
             {
@@ -335,6 +356,20 @@ namespace PTALBot.Modules
             IEmbed embed = original.Embeds.First();
             string url = embed.Url;
 
+            ActionRowComponent actionRow = original.Components.First();
+
+            IEnumerable<ButtonComponent> deployButtons = actionRow.Components
+                .Where(component => component.Type == ComponentType.Button)
+                .Select(button => (ButtonComponent)button)
+                .Where(button => button.Label == "View deployment");
+
+            string deployment = "";
+
+            if(deployButtons.Any())
+            {
+                deployment = deployButtons.First().Url;
+            }
+
             Match urlMatch = GithubURLRegex().Match(url);
 
             if(!urlMatch.Success)
@@ -348,7 +383,8 @@ namespace PTALBot.Modules
                 int.Parse(urlMatch.Groups.GetValueOrDefault("NUMBER")!.Value),
                 original.Content.Trim() == "**PTAL**"? "" : original.Content[9..],
                 embed.Author!.Value.Name,
-                embed.Author!.Value.IconUrl);
+                embed.Author!.Value.IconUrl,
+                deployment);
 
             if (generatedMessage.HasValue)
             {
